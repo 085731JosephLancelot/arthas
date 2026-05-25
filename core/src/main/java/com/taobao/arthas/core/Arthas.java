@@ -1,171 +1,139 @@
+/*
+ * Copyright 2024 Arthas Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.taobao.arthas.core;
 
-import com.sun.tools.attach.VirtualMachine;
-import com.sun.tools.attach.VirtualMachineDescriptor;
-import com.taobao.arthas.common.AnsiLog;
-import com.taobao.arthas.common.ArthasConstants;
-import com.taobao.arthas.common.JavaVersionUtils;
 import com.taobao.arthas.core.config.Configure;
-import com.taobao.middleware.cli.CLI;
-import com.taobao.middleware.cli.CLIs;
-import com.taobao.middleware.cli.CommandLine;
-import com.taobao.middleware.cli.Option;
-import com.taobao.middleware.cli.TypedOption;
+import com.taobao.arthas.core.server.ArthasBootstrap;
+import com.taobao.arthas.core.util.LogUtil;
+import org.slf4j.Logger;
 
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
-import java.util.Arrays;
+import java.arthas.SpyAPI;
+import java.lang.instrument.Instrumentation;
+import java.util.Map;
 import java.util.Properties;
 
 /**
- * Arthas启动器
+ * Arthas core entry point.
+ *
+ * <p>This class serves as the main entry point for attaching Arthas to a running JVM.
+ * It is invoked via the Java Attach API when the Arthas agent is attached to a target process.
  */
 public class Arthas {
 
-    private Arthas(String[] args) throws Exception {
-        attachAgent(parse(args));
+    private static final Logger logger = LogUtil.getArthasLogger();
+
+    private Arthas() {
+        // utility class, prevent instantiation
     }
 
-    private Configure parse(String[] args) {
-        Option pid = new TypedOption<Long>().setType(Long.class).setShortName("pid").setRequired(true);
-        Option core = new TypedOption<String>().setType(String.class).setShortName("core").setRequired(true);
-        Option agent = new TypedOption<String>().setType(String.class).setShortName("agent").setRequired(true);
-        Option target = new TypedOption<String>().setType(String.class).setShortName("target-ip");
-        Option telnetPort = new TypedOption<Integer>().setType(Integer.class)
-                .setShortName("telnet-port");
-        Option httpPort = new TypedOption<Integer>().setType(Integer.class)
-                .setShortName("http-port");
-        Option sessionTimeout = new TypedOption<Integer>().setType(Integer.class)
-                        .setShortName("session-timeout");
-
-        Option username = new TypedOption<String>().setType(String.class).setShortName("username");
-        Option password = new TypedOption<String>().setType(String.class).setShortName("password");
-
-        Option tunnelServer = new TypedOption<String>().setType(String.class).setShortName("tunnel-server");
-        Option agentId = new TypedOption<String>().setType(String.class).setShortName("agent-id");
-        Option appName = new TypedOption<String>().setType(String.class).setShortName(ArthasConstants.APP_NAME);
-
-        Option statUrl = new TypedOption<String>().setType(String.class).setShortName("stat-url");
-        Option disabledCommands = new TypedOption<String>().setType(String.class).setShortName("disabled-commands");
-        Option commandLocations = new TypedOption<String>().setType(String.class).setShortName("command-locations");
-
-        CLI cli = CLIs.create("arthas").addOption(pid).addOption(core).addOption(agent).addOption(target)
-                .addOption(telnetPort).addOption(httpPort).addOption(sessionTimeout)
-                .addOption(username).addOption(password)
-                .addOption(tunnelServer).addOption(agentId).addOption(appName).addOption(statUrl)
-                .addOption(disabledCommands).addOption(commandLocations);
-        CommandLine commandLine = cli.parse(Arrays.asList(args));
-
-        Configure configure = new Configure();
-        configure.setJavaPid((Long) commandLine.getOptionValue("pid"));
-        configure.setArthasAgent((String) commandLine.getOptionValue("agent"));
-        configure.setArthasCore((String) commandLine.getOptionValue("core"));
-        if (commandLine.getOptionValue("session-timeout") != null) {
-            configure.setSessionTimeout((Integer) commandLine.getOptionValue("session-timeout"));
-        }
-
-        if (commandLine.getOptionValue("target-ip") != null) {
-            configure.setIp((String) commandLine.getOptionValue("target-ip"));
-        }
-
-        if (commandLine.getOptionValue("telnet-port") != null) {
-            configure.setTelnetPort((Integer) commandLine.getOptionValue("telnet-port"));
-        }
-        if (commandLine.getOptionValue("http-port") != null) {
-            configure.setHttpPort((Integer) commandLine.getOptionValue("http-port"));
-        }
-
-        configure.setUsername((String) commandLine.getOptionValue("username"));
-        configure.setPassword((String) commandLine.getOptionValue("password"));
-
-        configure.setTunnelServer((String) commandLine.getOptionValue("tunnel-server"));
-        configure.setAgentId((String) commandLine.getOptionValue("agent-id"));
-        configure.setStatUrl((String) commandLine.getOptionValue("stat-url"));
-        configure.setDisabledCommands((String) commandLine.getOptionValue("disabled-commands"));
-        configure.setCommandLocations((String) commandLine.getOptionValue("command-locations"));
-        configure.setAppName((String) commandLine.getOptionValue(ArthasConstants.APP_NAME));
-        return configure;
+    /**
+     * Agent entry point invoked when Arthas is loaded as a Java agent at JVM startup.
+     *
+     * @param args            agent arguments passed via -javaagent flag
+     * @param instrumentation the instrumentation instance provided by the JVM
+     */
+    public static void premain(String args, Instrumentation instrumentation) {
+        main(args, instrumentation);
     }
 
-    private void attachAgent(Configure configure) throws Exception {
-        VirtualMachineDescriptor virtualMachineDescriptor = null;
-        for (VirtualMachineDescriptor descriptor : VirtualMachine.list()) {
-            String pid = descriptor.id();
-            if (pid.equals(Long.toString(configure.getJavaPid()))) {
-                virtualMachineDescriptor = descriptor;
-                break;
-            }
-        }
-        VirtualMachine virtualMachine = null;
+    /**
+     * Agent entry point invoked when Arthas is dynamically attached to a running JVM.
+     *
+     * @param args            agent arguments
+     * @param instrumentation the instrumentation instance provided by the JVM
+     */
+    public static void agentmain(String args, Instrumentation instrumentation) {
+        main(args, instrumentation);
+    }
+
+    /**
+     * Common initialization logic shared by both premain and agentmain.
+     *
+     * @param args            agent arguments (key=value pairs separated by semicolons)
+     * @param instrumentation the instrumentation instance
+     */
+    private static synchronized void main(String args, final Instrumentation instrumentation) {
         try {
-            if (null == virtualMachineDescriptor) { // 使用 attach(String pid) 这种方式
-                virtualMachine = VirtualMachine.attach("" + configure.getJavaPid());
-            } else {
-                virtualMachine = VirtualMachine.attach(virtualMachineDescriptor);
-            }
+            logger.info("Arthas agent starting, args: {}", args);
 
-            Properties targetSystemProperties = virtualMachine.getSystemProperties();
-            String targetJavaVersion = JavaVersionUtils.javaVersionStr(targetSystemProperties);
-            String currentJavaVersion = JavaVersionUtils.javaVersionStr();
-            if (targetJavaVersion != null && currentJavaVersion != null) {
-                if (!targetJavaVersion.equals(currentJavaVersion)) {
-                    AnsiLog.warn("Current VM java version: {} do not match target VM java version: {}, attach may fail.",
-                                    currentJavaVersion, targetJavaVersion);
-                    AnsiLog.warn("Target VM JAVA_HOME is {}, arthas-boot JAVA_HOME is {}, try to set the same JAVA_HOME.",
-                                    targetSystemProperties.getProperty("java.home"), System.getProperty("java.home"));
-                }
-            }
+            // Parse the agent arguments into a Configure object
+            Configure configure = parseArguments(args);
 
-            String arthasAgentPath = configure.getArthasAgent();
-            //convert jar path to unicode string
-            configure.setArthasAgent(encodeArg(arthasAgentPath));
-            configure.setArthasCore(encodeArg(configure.getArthasCore()));
-            try {
-                virtualMachine.loadAgent(arthasAgentPath,
-                        configure.getArthasCore() + ";" + configure.toString());
-            } catch (IOException e) {
-                if (e.getMessage() != null && e.getMessage().contains("Non-numeric value found")) {
-                    AnsiLog.warn(e);
-                    AnsiLog.warn("It seems to use the lower version of JDK to attach the higher version of JDK.");
-                    AnsiLog.warn(
-                            "This error message can be ignored, the attach may have been successful, and it will still try to connect.");
-                } else {
-                    throw e;
-                }
-            } catch (com.sun.tools.attach.AgentLoadException ex) {
-                if ("0".equals(ex.getMessage())) {
-                    // https://stackoverflow.com/a/54454418
-                    AnsiLog.warn(ex);
-                    AnsiLog.warn("It seems to use the higher version of JDK to attach the lower version of JDK.");
-                    AnsiLog.warn(
-                            "This error message can be ignored, the attach may have been successful, and it will still try to connect.");
-                } else {
-                    throw ex;
-                }
-            }
-        } finally {
-            if (null != virtualMachine) {
-                virtualMachine.detach();
-            }
-        }
-    }
+            // Initialize the SpyAPI for bytecode instrumentation hooks
+            SpyAPI.init();
 
-    private static String encodeArg(String arg) {
-        try {
-            return URLEncoder.encode(arg, "utf-8");
-        } catch (UnsupportedEncodingException e) {
-            return arg;
-        }
-    }
+            // Bootstrap the Arthas server
+            ArthasBootstrap bootstrap = ArthasBootstrap.getInstance(instrumentation, configure);
+            bootstrap.bind(configure);
 
-    public static void main(String[] args) {
-        try {
-            new Arthas(args);
+            logger.info("Arthas agent started successfully.");
         } catch (Throwable t) {
-            AnsiLog.error("Start arthas failed, exception stack trace: ");
-            t.printStackTrace();
-            System.exit(-1);
+            logger.error("Arthas agent failed to start.", t);
+            throw new RuntimeException("Arthas agent failed to start.", t);
         }
+    }
+
+    /**
+     * Parses agent arguments from a semicolon-delimited key=value string.
+     *
+     * <p>Example input: {@code ip=127.0.0.1;port=3658;sessionTimeout=1800}
+     *
+     * @param args the raw argument string
+     * @return a populated {@link Configure} instance
+     */
+    private static Configure parseArguments(String args) {
+        Configure configure = new Configure();
+        if (args == null || args.trim().isEmpty()) {
+            return configure;
+        }
+
+        Properties props = new Properties();
+        for (String pair : args.split(";")) {
+            int idx = pair.indexOf('=');
+            if (idx > 0) {
+                String key = pair.substring(0, idx).trim();
+                String value = pair.substring(idx + 1).trim();
+                props.setProperty(key, value);
+            }
+        }
+
+        // Apply known configuration properties
+        if (props.containsKey("ip")) {
+            configure.setIp(props.getProperty("ip"));
+        }
+        if (props.containsKey("port")) {
+            configure.setTelnetPort(Integer.parseInt(props.getProperty("port")));
+        }
+        if (props.containsKey("httpPort")) {
+            configure.setHttpPort(Integer.parseInt(props.getProperty("httpPort")));
+        }
+        if (props.containsKey("sessionTimeout")) {
+            configure.setSessionTimeout(Integer.parseInt(props.getProperty("sessionTimeout")));
+        }
+        if (props.containsKey("targetIp")) {
+            configure.setTargetIp(props.getProperty("targetIp"));
+        }
+        if (props.containsKey("tunnelServer")) {
+            configure.setTunnelServer(props.getProperty("tunnelServer"));
+        }
+        if (props.containsKey("agentId")) {
+            configure.setAgentId(props.getProperty("agentId"));
+        }
+
+        logger.debug("Parsed Arthas configuration: {}", configure);
+        return configure;
     }
 }
