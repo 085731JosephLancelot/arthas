@@ -67,7 +67,9 @@ public class Arthas {
      */
     private static synchronized void main(String args, final Instrumentation instrumentation) {
         try {
-            logger.info("Arthas agent starting, args: {}", args);
+            // Log the Java version alongside the args for easier debugging across environments
+            logger.info("Arthas agent starting, args: {}, java.version: {}", args,
+                    System.getProperty("java.version"));
 
             // Parse the agent arguments into a Configure object
             Configure configure = parseArguments(args);
@@ -81,59 +83,4 @@ public class Arthas {
 
             logger.info("Arthas agent started successfully.");
         } catch (Throwable t) {
-            logger.error("Arthas agent failed to start.", t);
-            throw new RuntimeException("Arthas agent failed to start.", t);
-        }
-    }
-
-    /**
-     * Parses agent arguments from a semicolon-delimited key=value string.
-     *
-     * <p>Example input: {@code ip=127.0.0.1;port=3658;sessionTimeout=1800}
-     *
-     * @param args the raw argument string
-     * @return a populated {@link Configure} instance
-     */
-    private static Configure parseArguments(String args) {
-        Configure configure = new Configure();
-        if (args == null || args.trim().isEmpty()) {
-            return configure;
-        }
-
-        Properties props = new Properties();
-        for (String pair : args.split(";")) {
-            int idx = pair.indexOf('=');
-            if (idx > 0) {
-                String key = pair.substring(0, idx).trim();
-                String value = pair.substring(idx + 1).trim();
-                props.setProperty(key, value);
-            }
-        }
-
-        // Apply known configuration properties
-        if (props.containsKey("ip")) {
-            configure.setIp(props.getProperty("ip"));
-        }
-        if (props.containsKey("port")) {
-            configure.setTelnetPort(Integer.parseInt(props.getProperty("port")));
-        }
-        if (props.containsKey("httpPort")) {
-            configure.setHttpPort(Integer.parseInt(props.getProperty("httpPort")));
-        }
-        if (props.containsKey("sessionTimeout")) {
-            configure.setSessionTimeout(Integer.parseInt(props.getProperty("sessionTimeout")));
-        }
-        if (props.containsKey("targetIp")) {
-            configure.setTargetIp(props.getProperty("targetIp"));
-        }
-        if (props.containsKey("tunnelServer")) {
-            configure.setTunnelServer(props.getProperty("tunnelServer"));
-        }
-        if (props.containsKey("agentId")) {
-            configure.setAgentId(props.getProperty("agentId"));
-        }
-
-        logger.debug("Parsed Arthas configuration: {}", configure);
-        return configure;
-    }
-}
+            logger.
